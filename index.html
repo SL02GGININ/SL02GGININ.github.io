@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Minesweeper</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{ --cell-size:20px; }
+    html,body{height:100%; margin:0;}
+    body{
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      display:flex; align-items:center; justify-content:center;
+      padding:24px;
+      background:
+        linear-gradient(135deg, rgba(255,230,200,0.95) 0%, rgba(255,210,170,0.98) 50%, rgba(255,195,150,0.99) 100%),
+        radial-gradient(circle at 10% 10%, rgba(255,255,255,0.03), rgba(0,0,0,0) 30%);
+    }
+    .container{
+      width:100%;
+      max-width:1100px;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+      border-radius:12px;
+      padding:18px;
+      display:flex;
+      gap:18px;
+      align-items:flex-start;
+    }
+    .left{flex:1 1 720px; display:flex; flex-direction:column; align-items:center;}
+    .right{width:320px;}
+    h1{margin:4px 0 8px 0; font-size:20px; color:#5a3920;}
+    .controls{display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;}
+    .controls select, .controls button, .controls input{padding:6px 8px; border-radius:6px; border:1px solid rgba(0,0,0,0.08); background:#fff;}
+    .status, .timer, .mine-counter { margin:6px 0; font-weight:600; color:#6a3f1b; }
+    .board { display:grid; gap:2px; margin:6px auto; background:transparent; padding:8px; border-radius:8px; overflow:auto; }
+    .cell {
+      width:var(--cell-size); height:var(--cell-size);
+      background:#d9c7b0;
+      display:flex; align-items:center; justify-content:center;
+      font-size:12px; cursor:pointer; user-select:none;
+      color:#2f1f12; border-radius:4px;
+      box-shadow: inset 0 -2px 0 rgba(0,0,0,0.05);
+    }
+    .cell:hover{ transform:translateY(-1px); transition:transform .06s; }
+    .revealed { background:#fff4ea; cursor:default; box-shadow:none; }
+    .mine { background:#d9534f; color:white; font-weight:700; }
+    .flag { background:#fff1f0; color:#c9302c; font-weight:700; }
+    .info-box{ background: linear-gradient(180deg, rgba(255,245,235,0.9), rgba(255,238,225,0.9)); padding:12px; border-radius:8px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); }
+    .history{ max-height:360px; overflow:auto; padding:8px; margin-top:12px; background:rgba(255,255,255,0.7); border-radius:6px; }
+    .history h3{margin:0 0 8px 0; font-size:16px; color:#6a3f1b;}
+    .history ul{padding-left:18px; margin:0; color:#4a2f1a; font-size:13px;}
+    label{font-size:13px; color:#6a3f1b;}
+    @media(max-width:980px){ .container{flex-direction:column; align-items:center;} .right{width:100%;} }
+  </style>
+</head>
+<body>
+  <div class="container" role="application" aria-label="Minesweeper game">
+    <div class="left">
+      <h1>Minesweeper</h1>
+      <div class="controls">
+        <label for="difficulty">Difficulty</label>
+        <select id="difficulty">
+          <option value="easy">Easy 9×9 / 10 mines</option>
+          <option value="medium">Medium 16×16 / 40 mines</option>
+          <option value="large" selected>Large 30×30 / 400 mines</option>
+          <option value="custom">Custom</option>
+        </select>
+        <div id="customControls" style="display:none; align-items:center; gap:6px;">
+          <label for="customSize">Size</label>
+          <input id="customSize" type="number" value="30" min="5" max="80" style="width:72px;" />
+          <label for="customMines">Mines</label>
+          <input id="customMines" type="number" value="400" min="1" max="4000" style="width:100px;" />
+          <button onclick="applyCustom()">Apply</button>
+        </div>
+        <button onclick="resetGame()">Restart</button>
+      </div>
+      <div class="info-box" style="width:100%; max-width:840px; display:flex; justify-content:space-between; gap:12px; align-items:center;">
+        <div>
+          <div class="status" id="status">Click any cell to start the game</div>
+          <div class="timer" id="timer">Time: 0 seconds</div>
+        </div>
+        <div style="text-align:right">
+          <div class="mine-counter" id="mineCounter">Remaining Mines: 400</div>
+          <div style="font-size:12px; color:#67361b; margin-top:6px;">Tip: The first click is safer and opens a larger area</div>
+        </div>
+      </div>
+      <div class="board" id="board" style="margin-top:12px;"></div>
+    </div>
+    <div class="right">
+      <div class="info-box" style="margin-bottom:12px;">
+        <h3 style="margin:0 0 8px 0;">How to play</h3>
+        <ul>
+          <li>Left click: reveal a cell</li>
+          <li>Right click: toggle flag</li>
+          <li>First click is safe and opens a larger initial area</li>
+        </ul>
+      </div>
+      <div class="history" id="history">
+        <h3>History</h3>
+        <ul id="historyList"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let size = 30, minesCount = 400;
+    let board = [], revealed = [], flagged = [], gameOver = false;
+    let firstClick = true;
+    let timer = 0, timerInterval = null;
+
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const timerEl = document.getElementById('timer');
+    const mineCounterEl = document.getElementById('mineCounter');
+    const historyList = document.getElementById('historyList');
+    const difficultySel = document.getElementById('difficulty');
+    const customControls = document.getElementById('customControls');
+    const customSizeInput = document.getElementById('customSize');
+    const customMinesInput = document.getElementById('customMines');
+
+    function applyDifficulty(){
+      const v = difficultySel.value;
+      if (v === 'easy'){ size = 9; minesCount = 10; }
+      else if (v === 'medium'){ size = 16; minesCount = 40; }
+      else if (v === 'large'){ size = 30; minesCount = 400; }
+      else if (v === 'custom'){ customControls.style.display = 'flex'; return; }
+      customControls.style.display = 'none';
+      updateCellSize();
+    }
+
+    function applyCustom(){
+      let s = parseInt(customSizeInput.value) || 30;
+      let m = parseInt(customMinesInput.value) || 400;
+      s = Math.max(5, Math.min(80, s));
+      m = Math.max(1, Math.min(s*s-1, m));
+      size = s; minesCount = m;
+      updateCellSize();
+      resetGame();
+    }
+
+    function updateCellSize(){
+      const base = size <= 16 ? 28 : (size <= 30 ? 22 : 14);
+      document.documentElement.style.setProperty('--cell-size', base + 'px');
+    }
+
+    function initBoard(){
+      board = Array.from({length: size}, ()=>Array(size).fill(0));
+      revealed = Array.from({length: size}, ()=>Array(size).fill(false));
+      flagged = Array.from({length: size}, ()=>Array(size).fill(false));
+      gameOver = false;
+      firstClick = true;
+      clearInterval(timerInterval); timerInterval = null;
+      timer = 0; timerEl.textContent = `Time: 0 seconds`;
+      statusEl.textContent = 'Click any cell to start the game';
+      mineCounterEl.textContent = `Remaining Mines: ${minesCount}`;
+      boardEl.style.gridTemplateColumns = `repeat(${size}, var(--cell-size))`;
+      boardEl.style.gridTemplateRows = `repeat(${size}, var(--cell-size))`;
+      renderBoard();
+    }
+
+    function placeMines(excludeR, excludeC){
+      let placed = 0;
+      while (placed < minesCount){
+        const r = Math.floor(Math.random()*size);
+        const c = Math.floor(Math.random()*size);
+        if (board[r][c] === -1) continue;
+        if (Math.abs(r-excludeR) <= 1 && Math.abs(c-excludeC) <= 1) continue;
+        board[r][c] = -1;
+        placed++;
+        for (let dr=-1; dr<=1; dr++){
+          for (let dc=-1; dc<=1; dc++){
+            const nr = r+dr, nc = c+dc;
+            if (nr>=0 && nr<size && nc>=0 && nc<size && board[nr][nc] !== -1) board[nr][nc]++;
+          }
+        }
+      }
+    }
+
+    function renderBoard(){
+      boardEl.innerHTML = '';
+      let flagsUsed = 0;
+      for (let r=0; r<size; r++){
+        for (let c=0; c<size; c++){
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.r = r; cell.dataset.c = c;
+
+          if (revealed[r][c]){
+            cell.classList.add('revealed');
+            if (board[r][c] === -1){ cell.classList.add('mine'); cell.textContent = '💣'; }
+            else if (board[r][c] > 0){ cell.textContent = board[r][c]; }
+          } else if (flagged[r][c]){
+            cell.classList.add('flag'); cell.textContent = '🚩'; flagsUsed++;
+          }
+
+          cell.addEventListener('click', ()=> onCellClick(r,c));
+          cell.addEventListener('contextmenu', (e)=>{ e.preventDefault(); toggleFlag(r,c); });
+          boardEl.appendChild(cell);
+        }
+      }
+      mineCounterEl.textContent = `Remaining Mines: ${Math.max(0, minesCount - flagsUsed)}`;
+    }
+
+    function onCellClick(r,c){
+      if (gameOver || revealed[r][c] || flagged[r][c]) return;
+
+      if (firstClick){
+        placeMines(r,c);
+        firstClick = false;
+        timerInterval = setInterval(()=>{ timer++; timerEl.textContent = `Time: ${timer} seconds`; }, 1000);
+        statusEl.textContent = 'Game in progress...';
+        revealSafeArea(r,c);
+        renderBoard();
+        if (!revealed[r][c]) reveal(r,c);
+        renderBoard();
+        if (!gameOver && checkWin()) endGame('Congratulations 🎉 You win!');
+        return;
+      }
+
+      reveal(r,c);
+      renderBoard();
+      if (!gameOver && checkWin()) endGame('Congratulations 🎉 You win!');
+    }
+
+    function revealSafeArea(r,c){
+      let radius = 2;
+      if (size >= 30) radius = 3;
+      if (size >= 50) radius = 4;
+      for (let dr=-radius; dr<=radius; dr++){
+        for (let dc=-radius; dc<=radius; dc++){
+          const nr = r+dr, nc = c+dc;
+          if (nr>=0 && nr<size && nc>=0 && nc<size) reveal(nr,nc,false);
+        }
+      }
+    }
+
+    function reveal(r,c, allowEnd = true){
+      if (r<0 || r>=size || c<0 || c>=size || revealed[r][c] || flagged[r][c]) return;
+      revealed[r][c] = true;
+      if (board[r][c] === -1){
+        if (allowEnd) endGame('Game over 💥 You hit a mine');
+        return;
+      }
+      if (board[r][c] === 0){
+        for (let dr=-1; dr<=1; dr++){
+          for (let dc=-1; dc<=1; dc++){
+            if (dr!==0 || dc!==0) reveal(r+dr, c+dc, allowEnd);
+          }
+        }
+      }
+    }
+
+    function toggleFlag(r,c){
+      if (gameOver || revealed[r][c]) return;
+      flagged[r][c] = !flagged[r][c];
+      renderBoard();
+    }
+
+    function checkWin(){
+      let safe = size*size - minesCount;
+      let cnt = 0;
+      for (let r=0; r<size; r++){
+        for (let c=0; c<size; c++){
+          if (revealed[r][c] && board[r][c] !== -1) cnt++;
+        }
+      }
+      return cnt === safe;
+    }
+
+    function endGame(msg){
+      gameOver = true;
+      clearInterval(timerInterval);
+      statusEl.textContent = msg;
+      for (let r=0; r<size; r++){
+        for (let c=0; c<size; c++){
+          if (board[r][c] === -1) revealed[r][c] = true;
+        }
+      }
+      renderBoard();
+      saveHistory(msg);
+    }
+
+    function saveHistory(result){
+      const li = document.createElement('li');
+      li.textContent = `${new Date().toLocaleString()} - Difficulty: ${difficultySel.value} - ${result} - Time: ${timer} seconds`;
+      historyList.prepend(li);
+    }
+
+    function resetGame(){
+      applyDifficulty();
+      initBoard();
+    }
+
+    difficultySel.addEventListener('change', ()=>{
+      if (difficultySel.value === 'custom') customControls.style.display = 'flex';
+      else customControls.style.display = 'none';
+      resetGame();
+    });
+
+    // Initialize
+    applyDifficulty();
+    initBoard();
+  </script>
+</body>
+</html>
+
+
